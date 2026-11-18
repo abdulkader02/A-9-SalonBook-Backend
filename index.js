@@ -395,7 +395,45 @@ app.get('/admin/services', async (req, res) => {
 });
 
 // POST SERVICES
+app.post('/services', async (req, res) => {
+  try {
+    const { serviceName, category, description, price, duration, image, status } = req.body;
 
+    if (!serviceName?.trim() || !category?.trim() || !description?.trim() || !image?.trim()) {
+      return res.status(400).json({ message: "Name, category, description and image are required" });
+    }
+
+    if (!(Number(price) > 0)) {
+      return res.status(400).json({ message: "Price must be a positive number" });
+    }
+
+    if (!(Number(duration) > 0)) {
+      return res.status(400).json({ message: "Duration must be a positive number" });
+    }
+
+    if (status !== undefined && !["active", "inactive"].includes(status)) {
+      return res.status(400).json({ message: "Status must be active or inactive" });
+    }
+
+    const newService = {
+      serviceName: serviceName.trim(),
+      category: category.trim(),
+      description: description.trim(),
+      price: Number(price),
+      duration: Number(duration),
+      image: image.trim(),
+      status: status || "active",
+      createdAt: new Date(),
+    };
+
+    const result = await services.insertOne(newService);
+    res.status(201).json({ _id: result.insertedId, ...newService });
+
+  } catch (err) {
+    console.error("Failed to create service:", err);
+    res.status(500).json({ message: "Failed to create service" });
+  }
+});
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
