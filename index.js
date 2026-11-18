@@ -435,6 +435,78 @@ app.post('/services', async (req, res) => {
   }
 });
 
+// PATCH SERVICES
+app.patch('/services/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid service ID" });
+    }
+
+    const { serviceName, category, description, price, duration, image, status } = req.body;
+    const updateData = {};
+
+    if (serviceName !== undefined) {
+      if (!serviceName.trim()) return res.status(400).json({ message: "Service name cannot be empty" });
+      updateData.serviceName = serviceName.trim();
+    }
+
+    if (category !== undefined) {
+      if (!category.trim()) return res.status(400).json({ message: "Category cannot be empty" });
+      updateData.category = category.trim();
+    }
+
+    if (description !== undefined) {
+      if (!description.trim()) return res.status(400).json({ message: "Description cannot be empty" });
+      updateData.description = description.trim();
+    }
+
+    if (image !== undefined) {
+      if (!image.trim()) return res.status(400).json({ message: "Image URL cannot be empty" });
+      updateData.image = image.trim();
+    }
+
+    if (price !== undefined) {
+      if (!(Number(price) > 0)) return res.status(400).json({ message: "Price must be a positive number" });
+      updateData.price = Number(price);
+    }
+
+    if (duration !== undefined) {
+      if (!(Number(duration) > 0)) return res.status(400).json({ message: "Duration must be a positive number" });
+      updateData.duration = Number(duration);
+    }
+
+    if (status !== undefined) {
+      if (!["active", "inactive"].includes(status)) {
+        return res.status(400).json({ message: "Status must be active or inactive" });
+      }
+      updateData.status = status;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ message: "No valid fields provided for update" });
+    }
+
+    const result = await services.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { ...updateData, updatedAt: new Date() } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Service not found" });
+    }
+
+    const updatedService = await services.findOne({ _id: new ObjectId(id) });
+    res.json(updatedService);
+
+  } catch (err) {
+    console.error("Failed to update service:", err);
+    res.status(500).json({ message: "Failed to update service" });
+  }
+});
+
+
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
