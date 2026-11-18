@@ -7,7 +7,10 @@ const app = express();
 const port = 5000;
 
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+  origin: process.env.CLIENT_URL,
+  credentials: true,
+}));
 
 const client = new MongoClient(process.env.MONGODB_URI);
 
@@ -378,6 +381,21 @@ app.post('/appointments', async (req, res) => {
     res.status(500).json({ message: "Failed to create appointment" });
   }
 });
+
+
+// ADMIN ROUTES
+app.get('/admin/services', async (req, res) => {
+  try {
+    const allServices = await services.find().sort({ createdAt: -1 }).toArray();
+    res.json(allServices);
+  } catch (err) {
+    console.error("Failed to fetch admin services:", err);
+    res.status(500).json({ message: "Failed to fetch services" });
+  }
+});
+
+// POST SERVICES
+
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
