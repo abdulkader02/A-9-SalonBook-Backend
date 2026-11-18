@@ -87,6 +87,78 @@ app.get('/services/:id', async (req, res) => {
   }
 });
 
+app.get('/appointments', async (req, res) => {
+  try {
+    const { customerId } = req.query;
+
+    if (!customerId) {
+      return res.status(400).json({ message: "customerId is required" });
+    }
+
+    const myAppointments = await appointments
+      .find({ customerId: customerId })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const result = [];
+
+    for (const appointment of myAppointments) {
+      const service = await services.findOne({
+        _id: new ObjectId(appointment.serviceId)
+      });
+
+      result.push({
+        _id: appointment._id,
+        appointmentDate: appointment.appointmentDate,
+        timeSlot: appointment.timeSlot,
+        message: appointment.message,
+        servicePrice: appointment.servicePrice,
+        status: appointment.status,
+        paymentStatus: appointment.paymentStatus,
+        createdAt: appointment.createdAt,
+        serviceName: service ? service.serviceName : "Service removed",
+        serviceImage: service ? service.image : "",
+        serviceCategory: service ? service.category : "",
+      });
+    }
+
+    res.json(result);
+
+  } catch (err) {
+    console.error("Failed to fetch appointments:", err);
+    res.status(500).json({ message: "Failed to fetch appointments" });
+  }
+});
+
+app.patch('/appointments/:id/cancel', async (req, res) => {
+  try {
+    const appointmentId = req.params.id;
+
+    const appointment = await appointments.findOne({
+      _id: new ObjectId(appointmentId)
+    });
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    if (appointment.status !== "pending") {
+      return res.status(400).json({ message: "Only pending appointments can be cancelled" });
+    }
+
+    await appointments.updateOne(
+      { _id: new ObjectId(appointmentId) },
+      { $set: { status: "cancelled" } }
+    );
+
+    res.json({ message: "Appointment cancelled successfully" });
+
+  } catch (err) {
+    console.error("Failed to cancel appointment:", err);
+    res.status(500).json({ message: "Failed to cancel appointment" });
+  }
+});
+
 
 app.post('/appointments', async (req, res) => {
   try {
