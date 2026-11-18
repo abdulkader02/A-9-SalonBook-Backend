@@ -2,7 +2,7 @@
 import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 
 const app = express();
 const port = 5000;
@@ -26,6 +26,8 @@ export async function connectToMongoDB() {
 const connectedClient = await connectToMongoDB();
 const db = connectedClient.db("salonbook")
 const users = db.collection("user")
+const services = db.collection("services")
+
 
 app.get('/', (req, res) => {
   res.send('Hello World!');
@@ -34,7 +36,17 @@ app.get('/', (req, res) => {
 app.get('/users', async (req, res) => {
   const allUsers = await users.find().toArray();
   res.json(allUsers)
-  
+
+})
+
+app.get('/services', async (req, res)=>{
+  const allServices = await services.find().toArray();
+  res.json(allServices)
+})
+app.get('/services/:id', async (req, res) =>{
+  const serviceId = req.params.id;
+  const service = await services.findOne({_id: new ObjectId(serviceId)})
+  res.json(service)
 })
 
 app.listen(port, () => {
