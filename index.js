@@ -87,6 +87,119 @@ app.get('/users/:id', async (req, res) => {
   }
 });
 
+app.patch('/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, image, phone } = req.body;
+
+    // Validate user ID
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID"
+      });
+    }
+
+    // Check if user exists
+    const user = await users.findOne({
+      _id: new ObjectId(id)
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Prepare update data
+    const updateData = {};
+
+    if (name !== undefined) {
+      if (typeof name !== "string" || !name.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "Name cannot be empty"
+        });
+      }
+
+      updateData.name = name.trim();
+    }
+
+    if (image !== undefined) {
+      if (typeof image !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid image URL"
+        });
+      }
+
+      if (image.trim()) {
+        updateData.image = image.trim();
+      }
+    }
+
+    if (phone !== undefined) {
+      if (typeof phone !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid phone number"
+        });
+      }
+
+      updateData.phone = phone.trim();
+    }
+
+    // Check if there is anything to update
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields provided for update"
+      });
+    }
+
+    // Update user
+    await users.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          ...updateData,
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    // Get updated user
+    const updatedUser = await users.findOne(
+      { _id: new ObjectId(id) },
+      {
+        projection: {
+          name: 1,
+          email: 1,
+          image: 1,
+          phone: 1,
+          role: 1,
+          isBlocked: 1
+        }
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: updatedUser
+    });
+
+  } catch (err) {
+    console.error("Failed to update user profile:", err);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update profile"
+    });
+  }
+});
+
 app.get('/services', async (req, res) => {
   try {
     const { search, category, sort } = req.query;
