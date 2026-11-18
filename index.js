@@ -39,6 +39,54 @@ app.get('/users', async (req, res) => {
 
 })
 
+app.get('/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID"
+      });
+    }
+
+    const user = await users.findOne(
+      { _id: new ObjectId(id) },
+      {
+        projection: {
+          name: 1,
+          email: 1,
+          image: 1,
+          phone: 1,
+          role: 1,
+          isBlocked: 1
+        }
+      }
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Profile retrieved successfully",
+      data: user
+    });
+
+  } catch (err) {
+    console.error("Failed to fetch user profile:", err);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch profile"
+    });
+  }
+});
+
 app.get('/services', async (req, res) => {
   try {
     const { search, category, sort } = req.query;
@@ -204,8 +252,8 @@ app.post('/appointments', async (req, res) => {
       timeSlot,
       message: message || "",
       servicePrice: service.price,
-      status: "pending",       // enforced here, not trusted from frontend
-      paymentStatus: "unpaid", // enforced here, not trusted from frontend
+      status: "pending",       // Not trusted from frontend
+      paymentStatus: "unpaid", // Not trusted from frontend
       createdAt: new Date(),
     };
 
