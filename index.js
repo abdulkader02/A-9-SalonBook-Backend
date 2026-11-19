@@ -231,6 +231,29 @@ app.get("/admin/users", async (req, res) => {
   }
 });
 
+app.get("/admin/stats", async (req, res) => {
+  try {
+    const totalCustomers = await users.countDocuments({ role: "customer" });
+    const totalActiveServices = await services.countDocuments({ status: "active" });
+    const totalAppointments = await appointments.countDocuments({});
+    const pendingAppointments = await appointments.countDocuments({ status: "pending" });
+    const confirmedAppointments = await appointments.countDocuments({ status: "confirmed" });
+    const successfulPayments = await appointments.countDocuments({ paymentStatus: "paid" });
+
+    res.json({
+      totalCustomers,
+      totalActiveServices,
+      totalAppointments,
+      pendingAppointments,
+      confirmedAppointments,
+      successfulPayments,
+    });
+  } catch (err) {
+    console.error("Failed to fetch admin stats:", err);
+    res.status(500).json({ message: "Failed to fetch stats" });
+  }
+});
+
 app.patch("/users/:id/block", async (req, res) => {
   try {
     const { id } = req.params;
