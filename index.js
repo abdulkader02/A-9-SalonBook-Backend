@@ -230,6 +230,42 @@ app.get("/admin/users", async (req, res) => {
     res.status(500).json({ message: "Failed to fetch customers" });
   }
 });
+
+app.patch("/users/:id/block", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isBlocked } = req.body;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid user ID" });
+    }
+
+    if (typeof isBlocked !== "boolean") {
+      return res.status(400).json({ message: "isBlocked must be true or false" });
+    }
+
+    const user = await users.findOne({ _id: new ObjectId(id) });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.role !== "customer") {
+      return res.status(400).json({ message: "Only customers can be blocked" });
+    }
+
+    await users.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { isBlocked: isBlocked } }
+    );
+
+    res.json({
+      message: isBlocked ? "User blocked successfully" : "User unblocked successfully",
+    });
+  } catch (err) {
+    console.error("Failed to update block status:", err);
+    res.status(500).json({ message: "Failed to update block status" });
+  }
+});
 /* ======================================================
    SERVICE ROUTES (PUBLIC)
 ====================================================== */
