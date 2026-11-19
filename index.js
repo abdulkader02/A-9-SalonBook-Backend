@@ -3,6 +3,9 @@ import cors from "cors";
 import "dotenv/config";
 import { MongoClient, ObjectId } from "mongodb";
 
+import Stripe from "stripe";
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
 const app = express();
 const port = 5000;
 
@@ -760,6 +763,65 @@ app.patch("/appointments/:id/status", async (req, res) => {
   }
 });
 
+/* ======================================================
+   PAYMENT ROUTES (STRIPE)
+====================================================== */
+
+app.post("/create-checkout-session", async (req, res) => {
+  try {
+    const { appointmentId } = req.body;
+
+    if (!appointmentId || !ObjectId.isValid(appointmentId)) {
+      return res.status(400).json({ message: "Invalid appointment ID" });
+    }
+
+    const appointment = await appointments.findOne({
+      _id: new ObjectId(appointmentId),
+    });
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    if (appointment.status !== "confirmed") {
+      return res.status(400).json({ message: "Only confirmed appointments can be paid" });
+    }
+    if (appointment.paymentStatus === "paid") {
+      return res.status(400).json({ message: "This appointment is already paid" });
+    }
+
+    const service = await services.findOne({
+      _id: new ObjectId(appointment.serviceId),
+    });
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: service ? service.serviceName : "Salon Service",
+            },
+            unit_amount: Math.round(appointment.servicePrice * 100), // dollar -> cents
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: {
+        appointmentId: appointment._id.toString(),
+      },
+      success_url: `${process.env.CLIENT_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.CLIENT_URL}/payment-cancel`,
+    });
+
+    res.json({ url: session.url });
+
+  } catch (err) {
+    console.error("Failed to create checkout session:", err);
+    res.status(500).json({ message: "Failed to create checkout session" });
+  }
+});
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
