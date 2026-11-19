@@ -530,6 +530,51 @@ app.delete('/services/:id', async (req, res) => {
 });
 
 
+// CUSTOMER APPOINTMENTS IN ADMIN PANEL
+
+app.get('/admin/appointments', async (req, res) => {
+  try {
+    
+    const allAppointments = await appointments
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const result = [];
+
+    for (const appointment of allAppointments) {
+      const service = await services.findOne({
+        _id: new ObjectId(appointment.serviceId)
+      });
+
+      const customer = await users.findOne({
+        _id: new ObjectId(appointment.customerId)
+      });
+
+      result.push({
+        _id: appointment._id,
+        appointmentDate: appointment.appointmentDate,
+        timeSlot: appointment.timeSlot,
+        message: appointment.message,
+        servicePrice: appointment.servicePrice,
+        status: appointment.status,
+        paymentStatus: appointment.paymentStatus,
+        createdAt: appointment.createdAt,
+        serviceName: service ? service.serviceName : "Service removed",
+        customerName: customer ? customer.name : "Unknown customer",
+        customerEmail: customer ? customer.email : "",
+      });
+    }
+
+    res.json(result);
+
+  } catch (err) {
+    console.error("Failed to fetch appointments:", err);
+    res.status(500).json({ message: "Failed to fetch appointments" });
+  }
+});
+
+
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
