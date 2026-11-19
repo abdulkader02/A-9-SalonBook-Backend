@@ -103,8 +103,63 @@ const connectedClient = await connectToMongoDB();
 const db = connectedClient.db("salonbook");
 const users = db.collection("user");
 const services = db.collection("services");
+const sessions = db.collection("session");
 const appointments = db.collection("appointments");
 const transactions = db.collection("transactions");
+
+/* ======================================================
+   AUTH MIDDLEWARE
+====================================================== */
+
+const requireAuth = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    const session = await sessions.findOne({ token: token });
+
+    if (!session) {
+      return res.status(401).json({ message: "Invalid or expired session" });
+    }
+
+    if (new Date(session.expiresAt) < new Date()) {
+      return res.status(401).json({ message: "Session expired" });
+    }
+
+    const user = await users.findOne({ _id: session.userId });
+
+    if (!user) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    if (user.isBlocked) {
+      return res.status(403).json({ message: "Your account has been blocked" });
+    }
+
+    req.user = {
+      id: user._id.toString(),
+      role: user.role,
+      isBlocked: user.isBlocked,
+    };
+
+    next();
+  } catch (err) {
+    console.error("Auth middleware error:", err);
+    res.status(500).json({ message: "Authentication check failed" });
+  }
+};
+
+const requireAdmin = (req, res, next) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  next();
+};
 
 app.get("/", (req, res) => {
   res.send("Hello World!");
@@ -460,7 +515,7 @@ app.get("/services/:id", async (req, res) => {
    SERVICE ROUTES (ADMIN - CREATE / UPDATE / DELETE)
 ====================================================== */
 
-app.get("/admin/services", async (req, res) => {
+app.get("/admin/services", requireAuth, requireAdmin, async (req, res) => {
   try {
     const allServices = await services.find().sort({ createdAt: -1 }).toArray();
     res.json(allServices);
