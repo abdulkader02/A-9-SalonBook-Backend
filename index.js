@@ -2,12 +2,81 @@ import express from "express";
 import cors from "cors";
 import "dotenv/config";
 import { MongoClient, ObjectId } from "mongodb";
-
 import Stripe from "stripe";
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
 const port = 5000;
+
+app.post(
+  "/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const signature = req.headers["stripe-signature"];
+
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        signature,
+        process.env.STRIPE_WEBHOOK_SECRET,
+      );
+    } catch (err) {
+      console.error("Webhook signature verification failed:", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+
+      if (session.payment_status !== "paid") {
+        console.log(
+          "Checkout completed but payment not confirmed yet:",
+          session.id,
+        );
+        return res.json({ received: true });
+      }
+
+      try {
+        const appointmentId = session.metadata.appointmentId;
+
+        // Stripe can send the same event more than once, so skip if already saved
+        const alreadySaved = await transactions.findOne({
+          stripeSessionId: session.id,
+        });
+        if (alreadySaved) {
+          return res.json({ received: true });
+        }
+
+        await appointments.updateOne(
+          { _id: new ObjectId(appointmentId) },
+          { $set: { paymentStatus: "paid" } },
+        );
+
+        await transactions.insertOne({
+          appointmentId: appointmentId,
+          customerId: session.metadata.customerId,
+          amount: session.amount_total / 100,
+          currency: session.currency,
+          stripeSessionId: session.id,
+          status: "paid",
+          createdAt: new Date(),
+        });
+
+        console.log("Appointment marked as paid:", appointmentId);
+      } catch (err) {
+        console.error("Failed to update appointment after payment:", err);
+        // 500 tells Stripe to retry the event later
+        return res
+          .status(500)
+          .json({ message: "Failed to process payment event" });
+      }
+    }
+
+    res.json({ received: true });
+  },
+);
 
 app.use(express.json());
 app.use(
@@ -35,6 +104,7 @@ const db = connectedClient.db("salonbook");
 const users = db.collection("user");
 const services = db.collection("services");
 const appointments = db.collection("appointments");
+const transactions = db.collection("transactions");
 
 app.get("/", (req, res) => {
   res.send("Hello World!");
@@ -237,11 +307,19 @@ app.get("/admin/users", async (req, res) => {
 app.get("/admin/stats", async (req, res) => {
   try {
     const totalCustomers = await users.countDocuments({ role: "customer" });
-    const totalActiveServices = await services.countDocuments({ status: "active" });
+    const totalActiveServices = await services.countDocuments({
+      status: "active",
+    });
     const totalAppointments = await appointments.countDocuments({});
-    const pendingAppointments = await appointments.countDocuments({ status: "pending" });
-    const confirmedAppointments = await appointments.countDocuments({ status: "confirmed" });
-    const successfulPayments = await appointments.countDocuments({ paymentStatus: "paid" });
+    const pendingAppointments = await appointments.countDocuments({
+      status: "pending",
+    });
+    const confirmedAppointments = await appointments.countDocuments({
+      status: "confirmed",
+    });
+    const successfulPayments = await appointments.countDocuments({
+      paymentStatus: "paid",
+    });
 
     res.json({
       totalCustomers,
@@ -267,7 +345,9 @@ app.patch("/users/:id/block", async (req, res) => {
     }
 
     if (typeof isBlocked !== "boolean") {
-      return res.status(400).json({ message: "isBlocked must be true or false" });
+      return res
+        .status(400)
+        .json({ message: "isBlocked must be true or false" });
     }
 
     const user = await users.findOne({ _id: new ObjectId(id) });
@@ -281,11 +361,13 @@ app.patch("/users/:id/block", async (req, res) => {
 
     await users.updateOne(
       { _id: new ObjectId(id) },
-      { $set: { isBlocked: isBlocked } }
+      { $set: { isBlocked: isBlocked } },
     );
 
     res.json({
-      message: isBlocked ? "User blocked successfully" : "User unblocked successfully",
+      message: isBlocked
+        ? "User blocked successfully"
+        : "User unblocked successfully",
     });
   } catch (err) {
     console.error("Failed to update block status:", err);
@@ -322,6 +404,39 @@ app.get("/services", async (req, res) => {
   } catch (err) {
     console.error("Failed to fetch services:", err);
     res.status(500).json({ message: "Failed to fetch services" });
+  }
+});
+
+app.get("/services/featured", async (req, res) => {
+  try {
+    const featuredServices = await services
+      .find({ status: "active" })
+      .sort({ createdAt: -1 })
+      .limit(6)
+      .toArray();
+
+    const result = featuredServices.map((service) => {
+      const description = service.description || "";
+      const shortDescription =
+        description.length > 100
+          ? description.slice(0, 100).trimEnd() + "..."
+          : description;
+
+      return {
+        _id: service._id,
+        serviceName: service.serviceName,
+        category: service.category,
+        price: service.price,
+        duration: service.duration,
+        image: service.image,
+        shortDescription,
+      };
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error("Failed to fetch featured services:", err);
+    res.status(500).json({ message: "Failed to fetch featured services" });
   }
 });
 
@@ -784,10 +899,14 @@ app.post("/create-checkout-session", async (req, res) => {
     }
 
     if (appointment.status !== "confirmed") {
-      return res.status(400).json({ message: "Only confirmed appointments can be paid" });
+      return res
+        .status(400)
+        .json({ message: "Only confirmed appointments can be paid" });
     }
     if (appointment.paymentStatus === "paid") {
-      return res.status(400).json({ message: "This appointment is already paid" });
+      return res
+        .status(400)
+        .json({ message: "This appointment is already paid" });
     }
 
     const service = await services.findOne({
@@ -810,16 +929,84 @@ app.post("/create-checkout-session", async (req, res) => {
       ],
       metadata: {
         appointmentId: appointment._id.toString(),
+        customerId: appointment.customerId,
       },
       success_url: `${process.env.CLIENT_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.CLIENT_URL}/payment-cancel`,
     });
 
     res.json({ url: session.url });
-
   } catch (err) {
     console.error("Failed to create checkout session:", err);
     res.status(500).json({ message: "Failed to create checkout session" });
+  }
+});
+
+/* ======================================================
+   TRANSACTION ROUTES (ADMIN - READ ONLY)
+====================================================== */
+
+app.get("/admin/transactions", async (req, res) => {
+  try {
+    const allTransactions = await transactions
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const result = [];
+
+    for (const transaction of allTransactions) {
+      let appointment = null;
+      let customer = null;
+      let service = null;
+
+      try {
+        appointment = await appointments.findOne({
+          _id: new ObjectId(String(transaction.appointmentId)),
+        });
+      } catch {
+        appointment = null;
+      }
+
+      try {
+        customer = await users.findOne(
+          { _id: new ObjectId(String(transaction.customerId)) },
+          { projection: { name: 1, email: 1 } },
+        );
+      } catch {
+        customer = null;
+      }
+
+      if (appointment?.serviceId) {
+        try {
+          service = await services.findOne(
+            { _id: new ObjectId(String(appointment.serviceId)) },
+            { projection: { serviceName: 1 } },
+          );
+        } catch {
+          service = null;
+        }
+      }
+
+      result.push({
+        _id: transaction._id,
+        stripeSessionId: transaction.stripeSessionId,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        status: transaction.status,
+        createdAt: transaction.createdAt,
+        appointmentDate: appointment?.appointmentDate ?? null,
+        timeSlot: appointment?.timeSlot ?? null,
+        customerName: customer?.name ?? "Unknown customer",
+        customerEmail: customer?.email ?? "",
+        serviceName: service?.serviceName ?? "Service removed",
+      });
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error("Failed to fetch transactions:", err);
+    res.status(500).json({ message: "Failed to fetch transactions" });
   }
 });
 app.listen(port, () => {
