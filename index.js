@@ -205,6 +205,31 @@ app.patch("/users/:id", async (req, res) => {
   }
 });
 
+app.get("/admin/users", async (req, res) => {
+  try {
+    const allCustomers = await users
+      .find(
+        { role: "customer" },
+        {
+          projection: {
+            name: 1,
+            email: 1,
+            image: 1,
+            phone: 1,
+            isBlocked: 1,
+            createdAt: 1,
+          },
+        },
+      )
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.json(allCustomers);
+  } catch (err) {
+    console.error("Failed to fetch customers:", err);
+    res.status(500).json({ message: "Failed to fetch customers" });
+  }
+});
 /* ======================================================
    SERVICE ROUTES (PUBLIC)
 ====================================================== */
@@ -363,9 +388,7 @@ app.patch("/services/:id", async (req, res) => {
 
     if (description !== undefined) {
       if (!description.trim())
-        return res
-          .status(400)
-          .json({ message: "Description cannot be empty" });
+        return res.status(400).json({ message: "Description cannot be empty" });
       updateData.description = description.trim();
     }
 
