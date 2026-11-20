@@ -169,12 +169,17 @@ app.get("/", (req, res) => {
    USER ROUTES
 ====================================================== */
 
-app.get("/users", async (req, res) => {
+// CHANGED: was fully open (returned every user to anyone). Now admin-only,
+// since this exposes every registered account.
+app.get("/users", requireAuth, requireAdmin, async (req, res) => {
   const allUsers = await users.find().toArray();
   res.json(allUsers);
 });
 
-app.get("/users/:id", async (req, res) => {
+// CHANGED: added requireAuth + ownership check. Assignment rule: "Users must
+// not be able to update another user's profile" - so a logged-in user may
+// only fetch their own profile through this route.
+app.get("/users/:id", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -182,6 +187,14 @@ app.get("/users/:id", async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID",
+      });
+    }
+
+    // Ownership check: you can only read your own profile through this route
+    if (req.user.id !== id) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only view your own profile",
       });
     }
 
@@ -221,7 +234,10 @@ app.get("/users/:id", async (req, res) => {
   }
 });
 
-app.patch("/users/:id", async (req, res) => {
+// CHANGED: added requireAuth + ownership check. Assignment rule: "Users must
+// not be able to update another user's profile" - previously anyone could
+// PATCH any user ID.
+app.patch("/users/:id", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, image, phone } = req.body;
@@ -231,6 +247,14 @@ app.patch("/users/:id", async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID",
+      });
+    }
+
+    // Ownership check: you can only update your own profile
+    if (req.user.id !== id) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only update your own profile",
       });
     }
 
@@ -333,7 +357,8 @@ app.patch("/users/:id", async (req, res) => {
   }
 });
 
-app.get("/admin/users", async (req, res) => {
+// CHANGED: added requireAuth, requireAdmin.
+app.get("/admin/users", requireAuth, requireAdmin, async (req, res) => {
   try {
     const allCustomers = await users
       .find(
@@ -359,7 +384,8 @@ app.get("/admin/users", async (req, res) => {
   }
 });
 
-app.get("/admin/stats", async (req, res) => {
+// CHANGED: added requireAuth, requireAdmin.
+app.get("/admin/stats", requireAuth, requireAdmin, async (req, res) => {
   try {
     const totalCustomers = await users.countDocuments({ role: "customer" });
     const totalActiveServices = await services.countDocuments({
@@ -390,7 +416,8 @@ app.get("/admin/stats", async (req, res) => {
   }
 });
 
-app.patch("/users/:id/block", async (req, res) => {
+// CHANGED: added requireAuth, requireAdmin.
+app.patch("/users/:id/block", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { isBlocked } = req.body;
@@ -525,7 +552,9 @@ app.get("/admin/services", requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-app.post("/services", async (req, res) => {
+// CHANGED: added requireAuth, requireAdmin. Assignment rule: "Only Admin can
+// create, update, or delete services."
+app.post("/services", requireAuth, requireAdmin, async (req, res) => {
   try {
     const {
       serviceName,
@@ -585,7 +614,8 @@ app.post("/services", async (req, res) => {
   }
 });
 
-app.patch("/services/:id", async (req, res) => {
+// CHANGED: added requireAuth, requireAdmin.
+app.patch("/services/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -678,7 +708,8 @@ app.patch("/services/:id", async (req, res) => {
   }
 });
 
-app.delete("/services/:id", async (req, res) => {
+// CHANGED: added requireAuth, requireAdmin.
+app.delete("/services/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -703,13 +734,13 @@ app.delete("/services/:id", async (req, res) => {
    APPOINTMENT ROUTES (CUSTOMER)
 ====================================================== */
 
-app.get("/appointments", async (req, res) => {
+// CHANGED: added requireAuth. customerId now comes from the verified token
+// (req.user.id), not from the query string - otherwise anyone could pass
+// ?customerId=<someone else's id> and read their appointments. Assignment
+// rule: "Customers can only view their own appointments."
+app.get("/appointments", requireAuth, async (req, res) => {
   try {
-    const { customerId } = req.query;
-
-    if (!customerId) {
-      return res.status(400).json({ message: "customerId is required" });
-    }
+    const customerId = req.user.id;
 
     const myAppointments = await appointments
       .find({ customerId: customerId })
@@ -745,13 +776,25 @@ app.get("/appointments", async (req, res) => {
   }
 });
 
-app.post("/appointments", async (req, res) => {
+// CHANGED: added requireAuth. customerId is now taken from the verified
+// token (req.user.id), not trusted from the request body - otherwise
+// anyone could submit an appointment "as" another customer. Assignment
+// rule: "Only authenticated Customers can submit appointment requests."
+// Also blocks admins from booking, per "Admins cannot submit customer
+// appointment requests."
+app.post("/appointments", requireAuth, async (req, res) => {
   try {
-    const { serviceId, customerId, appointmentDate, timeSlot, message } =
-      req.body;
+    const { serviceId, appointmentDate, timeSlot, message } = req.body;
+    const customerId = req.user.id;
+
+    if (req.user.role === "admin") {
+      return res
+        .status(403)
+        .json({ message: "Admins cannot submit appointment requests" });
+    }
 
     // Basic required-field validation
-    if (!serviceId || !customerId || !appointmentDate || !timeSlot) {
+    if (!serviceId || !appointmentDate || !timeSlot) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
@@ -818,7 +861,10 @@ app.post("/appointments", async (req, res) => {
   }
 });
 
-app.patch("/appointments/:id/cancel", async (req, res) => {
+// CHANGED: added requireAuth + ownership check. Assignment rule: "A customer
+// can cancel only their own pending appointment requests." Previously anyone
+// who knew the appointment ID could cancel it.
+app.patch("/appointments/:id/cancel", requireAuth, async (req, res) => {
   try {
     const appointmentId = req.params.id;
 
@@ -828,6 +874,12 @@ app.patch("/appointments/:id/cancel", async (req, res) => {
 
     if (!appointment) {
       return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    if (appointment.customerId !== req.user.id) {
+      return res
+        .status(403)
+        .json({ message: "You can only cancel your own appointments" });
     }
 
     if (appointment.status !== "pending") {
@@ -852,92 +904,107 @@ app.patch("/appointments/:id/cancel", async (req, res) => {
    APPOINTMENT ROUTES (ADMIN)
 ====================================================== */
 
-app.get("/admin/appointments", async (req, res) => {
-  try {
-    const allAppointments = await appointments
-      .find({})
-      .sort({ createdAt: -1 })
-      .toArray();
+// CHANGED: added requireAuth, requireAdmin.
+app.get(
+  "/admin/appointments",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const allAppointments = await appointments
+        .find({})
+        .sort({ createdAt: -1 })
+        .toArray();
 
-    const result = [];
+      const result = [];
 
-    for (const appointment of allAppointments) {
-      const service = await services.findOne({
-        _id: new ObjectId(appointment.serviceId),
+      for (const appointment of allAppointments) {
+        const service = await services.findOne({
+          _id: new ObjectId(appointment.serviceId),
+        });
+
+        const customer = await users.findOne({
+          _id: new ObjectId(appointment.customerId),
+        });
+
+        result.push({
+          _id: appointment._id,
+          appointmentDate: appointment.appointmentDate,
+          timeSlot: appointment.timeSlot,
+          message: appointment.message,
+          servicePrice: appointment.servicePrice,
+          status: appointment.status,
+          paymentStatus: appointment.paymentStatus,
+          createdAt: appointment.createdAt,
+          serviceName: service ? service.serviceName : "Service removed",
+          customerName: customer ? customer.name : "Unknown customer",
+          customerEmail: customer ? customer.email : "",
+        });
+      }
+
+      res.json(result);
+    } catch (err) {
+      console.error("Failed to fetch appointments:", err);
+      res.status(500).json({ message: "Failed to fetch appointments" });
+    }
+  },
+);
+
+// CHANGED: added requireAuth, requireAdmin.
+app.patch(
+  "/appointments/:id/status",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const appointmentId = req.params.id;
+      const { status } = req.body;
+
+      if (status !== "confirmed" && status !== "cancelled") {
+        return res.status(400).json({ message: "Invalid status value" });
+      }
+
+      const appointment = await appointments.findOne({
+        _id: new ObjectId(appointmentId),
       });
 
-      const customer = await users.findOne({
-        _id: new ObjectId(appointment.customerId),
-      });
+      if (!appointment) {
+        return res.status(404).json({ message: "Appointment not found" });
+      }
 
-      result.push({
-        _id: appointment._id,
-        appointmentDate: appointment.appointmentDate,
-        timeSlot: appointment.timeSlot,
-        message: appointment.message,
-        servicePrice: appointment.servicePrice,
-        status: appointment.status,
-        paymentStatus: appointment.paymentStatus,
-        createdAt: appointment.createdAt,
-        serviceName: service ? service.serviceName : "Service removed",
-        customerName: customer ? customer.name : "Unknown customer",
-        customerEmail: customer ? customer.email : "",
-      });
+      if (status === "confirmed" && appointment.status !== "pending") {
+        return res
+          .status(400)
+          .json({ message: "Only pending appointments can be confirmed" });
+      }
+
+      if (status === "cancelled" && appointment.status === "cancelled") {
+        return res
+          .status(400)
+          .json({ message: "Appointment is already cancelled" });
+      }
+
+      await appointments.updateOne(
+        { _id: new ObjectId(appointmentId) },
+        { $set: { status: status } },
+      );
+
+      res.json({ message: `Appointment ${status} successfully` });
+    } catch (err) {
+      console.error("Failed to update appointment status:", err);
+      res.status(500).json({ message: "Failed to update appointment status" });
     }
-
-    res.json(result);
-  } catch (err) {
-    console.error("Failed to fetch appointments:", err);
-    res.status(500).json({ message: "Failed to fetch appointments" });
-  }
-});
-
-app.patch("/appointments/:id/status", async (req, res) => {
-  try {
-    const appointmentId = req.params.id;
-    const { status } = req.body;
-
-    if (status !== "confirmed" && status !== "cancelled") {
-      return res.status(400).json({ message: "Invalid status value" });
-    }
-
-    const appointment = await appointments.findOne({
-      _id: new ObjectId(appointmentId),
-    });
-
-    if (!appointment) {
-      return res.status(404).json({ message: "Appointment not found" });
-    }
-
-    if (status === "confirmed" && appointment.status !== "pending") {
-      return res
-        .status(400)
-        .json({ message: "Only pending appointments can be confirmed" });
-    }
-
-    if (status === "cancelled" && appointment.status === "cancelled") {
-      return res
-        .status(400)
-        .json({ message: "Appointment is already cancelled" });
-    }
-
-    await appointments.updateOne(
-      { _id: new ObjectId(appointmentId) },
-      { $set: { status: status } },
-    );
-
-    res.json({ message: `Appointment ${status} successfully` });
-  } catch (err) {
-    console.error("Failed to update appointment status:", err);
-    res.status(500).json({ message: "Failed to update appointment status" });
-  }
-});
+  },
+);
 
 /* ======================================================
    PAYMENT ROUTES (STRIPE)
 ====================================================== */
 
-app.post("/create-checkout-session", async (req, res) => {
+// CHANGED: added requireAuth + ownership check. Previously anyone who knew
+// an appointment ID could create a checkout session for it, paying (or
+// forcing payment of) someone else's appointment.
+app.post("/create-checkout-session", requireAuth, async (req, res) => {
   try {
     const { appointmentId } = req.body;
 
@@ -951,6 +1018,12 @@ app.post("/create-checkout-session", async (req, res) => {
 
     if (!appointment) {
       return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    if (appointment.customerId !== req.user.id) {
+      return res
+        .status(403)
+        .json({ message: "You can only pay for your own appointments" });
     }
 
     if (appointment.status !== "confirmed") {
@@ -1001,69 +1074,76 @@ app.post("/create-checkout-session", async (req, res) => {
    TRANSACTION ROUTES (ADMIN - READ ONLY)
 ====================================================== */
 
-app.get("/admin/transactions", async (req, res) => {
-  try {
-    const allTransactions = await transactions
-      .find({})
-      .sort({ createdAt: -1 })
-      .toArray();
+// CHANGED: added requireAuth, requireAdmin.
+app.get(
+  "/admin/transactions",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const allTransactions = await transactions
+        .find({})
+        .sort({ createdAt: -1 })
+        .toArray();
 
-    const result = [];
+      const result = [];
 
-    for (const transaction of allTransactions) {
-      let appointment = null;
-      let customer = null;
-      let service = null;
+      for (const transaction of allTransactions) {
+        let appointment = null;
+        let customer = null;
+        let service = null;
 
-      try {
-        appointment = await appointments.findOne({
-          _id: new ObjectId(String(transaction.appointmentId)),
-        });
-      } catch {
-        appointment = null;
-      }
-
-      try {
-        customer = await users.findOne(
-          { _id: new ObjectId(String(transaction.customerId)) },
-          { projection: { name: 1, email: 1 } },
-        );
-      } catch {
-        customer = null;
-      }
-
-      if (appointment?.serviceId) {
         try {
-          service = await services.findOne(
-            { _id: new ObjectId(String(appointment.serviceId)) },
-            { projection: { serviceName: 1 } },
+          appointment = await appointments.findOne({
+            _id: new ObjectId(String(transaction.appointmentId)),
+          });
+        } catch {
+          appointment = null;
+        }
+
+        try {
+          customer = await users.findOne(
+            { _id: new ObjectId(String(transaction.customerId)) },
+            { projection: { name: 1, email: 1 } },
           );
         } catch {
-          service = null;
+          customer = null;
         }
+
+        if (appointment?.serviceId) {
+          try {
+            service = await services.findOne(
+              { _id: new ObjectId(String(appointment.serviceId)) },
+              { projection: { serviceName: 1 } },
+            );
+          } catch {
+            service = null;
+          }
+        }
+
+        result.push({
+          _id: transaction._id,
+          stripeSessionId: transaction.stripeSessionId,
+          amount: transaction.amount,
+          currency: transaction.currency,
+          status: transaction.status,
+          createdAt: transaction.createdAt,
+          appointmentDate: appointment?.appointmentDate ?? null,
+          timeSlot: appointment?.timeSlot ?? null,
+          customerName: customer?.name ?? "Unknown customer",
+          customerEmail: customer?.email ?? "",
+          serviceName: service?.serviceName ?? "Service removed",
+        });
       }
 
-      result.push({
-        _id: transaction._id,
-        stripeSessionId: transaction.stripeSessionId,
-        amount: transaction.amount,
-        currency: transaction.currency,
-        status: transaction.status,
-        createdAt: transaction.createdAt,
-        appointmentDate: appointment?.appointmentDate ?? null,
-        timeSlot: appointment?.timeSlot ?? null,
-        customerName: customer?.name ?? "Unknown customer",
-        customerEmail: customer?.email ?? "",
-        serviceName: service?.serviceName ?? "Service removed",
-      });
+      res.json(result);
+    } catch (err) {
+      console.error("Failed to fetch transactions:", err);
+      res.status(500).json({ message: "Failed to fetch transactions" });
     }
+  },
+);
 
-    res.json(result);
-  } catch (err) {
-    console.error("Failed to fetch transactions:", err);
-    res.status(500).json({ message: "Failed to fetch transactions" });
-  }
-});
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
