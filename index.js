@@ -905,50 +905,45 @@ app.patch("/appointments/:id/cancel", requireAuth, async (req, res) => {
 ====================================================== */
 
 // CHANGED: added requireAuth, requireAdmin.
-app.get(
-  "/admin/appointments",
-  requireAuth,
-  requireAdmin,
-  async (req, res) => {
-    try {
-      const allAppointments = await appointments
-        .find({})
-        .sort({ createdAt: -1 })
-        .toArray();
+app.get("/admin/appointments", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const allAppointments = await appointments
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
 
-      const result = [];
+    const result = [];
 
-      for (const appointment of allAppointments) {
-        const service = await services.findOne({
-          _id: new ObjectId(appointment.serviceId),
-        });
+    for (const appointment of allAppointments) {
+      const service = await services.findOne({
+        _id: new ObjectId(appointment.serviceId),
+      });
 
-        const customer = await users.findOne({
-          _id: new ObjectId(appointment.customerId),
-        });
+      const customer = await users.findOne({
+        _id: new ObjectId(appointment.customerId),
+      });
 
-        result.push({
-          _id: appointment._id,
-          appointmentDate: appointment.appointmentDate,
-          timeSlot: appointment.timeSlot,
-          message: appointment.message,
-          servicePrice: appointment.servicePrice,
-          status: appointment.status,
-          paymentStatus: appointment.paymentStatus,
-          createdAt: appointment.createdAt,
-          serviceName: service ? service.serviceName : "Service removed",
-          customerName: customer ? customer.name : "Unknown customer",
-          customerEmail: customer ? customer.email : "",
-        });
-      }
-
-      res.json(result);
-    } catch (err) {
-      console.error("Failed to fetch appointments:", err);
-      res.status(500).json({ message: "Failed to fetch appointments" });
+      result.push({
+        _id: appointment._id,
+        appointmentDate: appointment.appointmentDate,
+        timeSlot: appointment.timeSlot,
+        message: appointment.message,
+        servicePrice: appointment.servicePrice,
+        status: appointment.status,
+        paymentStatus: appointment.paymentStatus,
+        createdAt: appointment.createdAt,
+        serviceName: service ? service.serviceName : "Service removed",
+        customerName: customer ? customer.name : "Unknown customer",
+        customerEmail: customer ? customer.email : "",
+      });
     }
-  },
-);
+
+    res.json(result);
+  } catch (err) {
+    console.error("Failed to fetch appointments:", err);
+    res.status(500).json({ message: "Failed to fetch appointments" });
+  }
+});
 
 // CHANGED: added requireAuth, requireAdmin.
 app.patch(
@@ -1075,75 +1070,72 @@ app.post("/create-checkout-session", requireAuth, async (req, res) => {
 ====================================================== */
 
 // CHANGED: added requireAuth, requireAdmin.
-app.get(
-  "/admin/transactions",
-  requireAuth,
-  requireAdmin,
-  async (req, res) => {
-    try {
-      const allTransactions = await transactions
-        .find({})
-        .sort({ createdAt: -1 })
-        .toArray();
+app.get("/admin/transactions", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const allTransactions = await transactions
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
 
-      const result = [];
+    const result = [];
 
-      for (const transaction of allTransactions) {
-        let appointment = null;
-        let customer = null;
-        let service = null;
+    for (const transaction of allTransactions) {
+      let appointment = null;
+      let customer = null;
+      let service = null;
 
-        try {
-          appointment = await appointments.findOne({
-            _id: new ObjectId(String(transaction.appointmentId)),
-          });
-        } catch {
-          appointment = null;
-        }
-
-        try {
-          customer = await users.findOne(
-            { _id: new ObjectId(String(transaction.customerId)) },
-            { projection: { name: 1, email: 1 } },
-          );
-        } catch {
-          customer = null;
-        }
-
-        if (appointment?.serviceId) {
-          try {
-            service = await services.findOne(
-              { _id: new ObjectId(String(appointment.serviceId)) },
-              { projection: { serviceName: 1 } },
-            );
-          } catch {
-            service = null;
-          }
-        }
-
-        result.push({
-          _id: transaction._id,
-          stripeSessionId: transaction.stripeSessionId,
-          amount: transaction.amount,
-          currency: transaction.currency,
-          status: transaction.status,
-          createdAt: transaction.createdAt,
-          appointmentDate: appointment?.appointmentDate ?? null,
-          timeSlot: appointment?.timeSlot ?? null,
-          customerName: customer?.name ?? "Unknown customer",
-          customerEmail: customer?.email ?? "",
-          serviceName: service?.serviceName ?? "Service removed",
+      try {
+        appointment = await appointments.findOne({
+          _id: new ObjectId(String(transaction.appointmentId)),
         });
+      } catch {
+        appointment = null;
       }
 
-      res.json(result);
-    } catch (err) {
-      console.error("Failed to fetch transactions:", err);
-      res.status(500).json({ message: "Failed to fetch transactions" });
+      try {
+        customer = await users.findOne(
+          { _id: new ObjectId(String(transaction.customerId)) },
+          { projection: { name: 1, email: 1 } },
+        );
+      } catch {
+        customer = null;
+      }
+
+      if (appointment?.serviceId) {
+        try {
+          service = await services.findOne(
+            { _id: new ObjectId(String(appointment.serviceId)) },
+            { projection: { serviceName: 1 } },
+          );
+        } catch {
+          service = null;
+        }
+      }
+
+      result.push({
+        _id: transaction._id,
+        stripeSessionId: transaction.stripeSessionId,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        status: transaction.status,
+        createdAt: transaction.createdAt,
+        appointmentDate: appointment?.appointmentDate ?? null,
+        timeSlot: appointment?.timeSlot ?? null,
+        customerName: customer?.name ?? "Unknown customer",
+        customerEmail: customer?.email ?? "",
+        serviceName: service?.serviceName ?? "Service removed",
+      });
     }
-  },
-);
+
+    res.json(result);
+  } catch (err) {
+    console.error("Failed to fetch transactions:", err);
+    res.status(500).json({ message: "Failed to fetch transactions" });
+  }
+});
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
+
+export default app;
