@@ -7,7 +7,7 @@ This repository contains the **backend**: an Express.js REST API backed by Mongo
 business rules and data access for services, appointments, users, transactions, and Stripe payments,
 and protects routes with session-token authentication and role/ownership checks. The frontend lives
 in the separate Next.js client repository — see the
-[client repository](#client-and-server-repository-links).
+[client repository](https://salonbook-client-eight.vercel.app).
 
 ## Important Features
 
